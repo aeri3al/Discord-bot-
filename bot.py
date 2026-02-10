@@ -1,69 +1,87 @@
 import discord
 from discord.ext import commands
+import json
 import random
 import string
-import datetime
-import os
+from datetime import datetime, timedelta
 
-# =====================
-# CONFIG
-# =====================
-TOKEN = os.getenv("TOKEN")
+TOKEN = "DEIN_DISCORD_BOT_TOKEN_HIER"
 
-# =====================
-# BOT SETUP
-# =====================
 intents = discord.Intents.default()
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-CHARS_4C = string.ascii_lowercase + string.digits
-CHARS_4L = string.ascii_lowercase
+LICENSE_FILE = "licenses.json"
 
-def gen_4c():
-    return "".join(random.choice(CHARS_4C) for _ in range(4))
+def load_licenses():
+    try:
+        with open(LICENSE_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except:
+        return {}
 
-def gen_4l():
-    return "".join(random.choice(CHARS_4L) for _ in range(4))
+def save_licenses(data):
+    with open(LICENSE_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4)
 
-def save_to_file(text):
-    with open("generated.txt", "a", encoding="utf-8") as f:
-        f.write(f"{datetime.datetime.now()} | {text}\n")
+def gen_key():
+    parts = []
+    for _ in range(4):
+        part = "".join(random.choice(string.ascii_uppercase + string.digits) for _ in range(5))
+        parts.append(part)
+    return "EUPH-" + "-".join(parts)
 
-# =====================
-# EVENTS
-# =====================
+def make_license(duration):
+    now = datetime.utcnow()
+
+    if duration == "day":
+        expires = now + timedelta(days=1)
+    elif duration == "week":
+        expires = now + timedelta(weeks=1)
+    elif duration == "month":
+        expires = now + timedelta(days=30)
+    elif duration == "life":
+        expires = None
+    else:
+        return None, None
+
+    key = gen_key()
+    return key, expires
+
 @bot.event
 async def on_ready():
     print(f"✅ Bot online als {bot.user}")
 
-# =====================
-# COMMANDS
-# =====================
 @bot.command()
-async def gen4c(ctx, amount: int = 5):
-    if amount > 50:
-        await ctx.reply("❌ Maximal 50 auf einmal.")
+async def gen(ctx, duration: str):
+    duration = duration.lower()
+    if duration not in ["day", "week", "month", "life"]:
+        await ctx.reply("❌ Benutze: `!gen day`, `!gen week`, `!gen month` oder `!gen life`")
         return
 
-    names = [gen_4c() for _ in range(amount)]
-    result = ", ".join(names)
-
-    save_to_file(f"4C | {result}")
-    await ctx.reply(f"🔢 **4C Namen:**\n`{result}`")
-
-@bot.command()
-async def gen4l(ctx, amount: int = 5):
-    if amount > 50:
-        await ctx.reply("❌ Maximal 50 auf einmal.")
+    key, expires = make_license(duration)
+    if key is None:
+        await ctx.reply("❌ Fehler beim Erstellen der Lizenz.")
         return
 
-    names = [gen_4l() for _ in range(amount)]
-    result = ", ".join(names)
+    licenses = load_licenses()
 
-    save_to_file(f"4L | {result}")
-    await ctx.reply(f"🔤 **4L Namen:**\n`{result}`")
+    licenses[key] = {
+        "type": duration.upper(),
+        "expires": expires.isoformat() if expires else None,
+        "hwid": None
+    }
 
-# =====================
-# START
-# =====================
+    save_licenses(licenses)
+
+    try:
+        await ctx.author.send(
+            f"🔑 **Your Euphoric License Key**\n\n"
+            f"**Key:** `{key}`\n"
+            f"**Duration:** {duration.upper()}\n\n"
+            f"Do not share this key."
+        )
+        await ctx.reply("✅ Ich hab dir den Key per DM geschickt!")
+    except:
+        await ctx.reply("❌ Ich konnte dir keine DM senden. Öffne deine DMs!")
+
 bot.run(TOKEN)
